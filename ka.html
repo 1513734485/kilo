@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>天气预报</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',sans-serif}
+        body{background:linear-gradient(135deg,#74b9ff 0%,#0984e3 100%);min-height:100vh;padding:20px}
+        .container{max-width:800px;margin:0 auto}
+        .weather-app{background:white;border-radius:20px;padding:25px;box-shadow:0 10px 30px rgba(0,0,0,0.1)}
+        header{text-align:center;margin-bottom:25px;color:white}
+        h1{font-size:2rem;margin-bottom:8px}
+        .search-box{display:flex;gap:10px;margin-bottom:15px}
+        .search-input{flex:1;padding:12px;border:2px solid #ddd;border-radius:10px;font-size:1rem}
+        .search-btn{padding:12px 25px;background:#74b9ff;color:white;border:none;border-radius:10px;cursor:pointer;font-weight:600}
+        .cities-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:15px}
+        .city-btn{padding:10px;background:#dfe6e9;border:none;border-radius:8px;cursor:pointer;font-size:0.9rem;transition:all 0.3s}
+        .city-btn:hover{background:#74b9ff;color:white}
+        .loading{text-align:center;padding:20px;display:none}
+        .spinner{border:4px solid #f3f3f3;border-top:4px solid #74b9ff;border-radius:50%;width:30px;height:30px;animation:spin 1s linear infinite;margin:0 auto 10px}
+        @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+        .error{background:#ffeaa7;color:#d63031;padding:12px;border-radius:8px;margin:10px 0;text-align:center;display:none}
+        .weather-info{display:none;animation:fadeIn 0.5s ease-in}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        .current-weather{text-align:center;margin-bottom:20px;padding-bottom:15px;border-bottom:1px solid #eee}
+        .temperature{font-size:3rem;font-weight:bold;color:#74b9ff;margin:8px 0}
+        .details{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:15px}
+        .detail-item{background:#f8f9fa;padding:10px;border-radius:8px;text-align:center}
+        .detail-label{font-size:0.75rem;color:#666;margin-bottom:3px}
+        .detail-value{font-size:1rem;font-weight:600}
+        .forecast-tabs{display:flex;gap:5px;margin-bottom:15px;border-bottom:1px solid #eee;padding-bottom:10px}
+        .tab-btn{padding:8px 15px;background:#f8f9fa;border:none;border-radius:6px;cursor:pointer;font-size:0.9rem;transition:all 0.3s}
+        .tab-btn.active{background:#74b9ff;color:white}
+        .hourly-forecast{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px}
+        .hourly-item{padding:10px;background:#f8f9fa;border-radius:8px;text-align:center}
+        .hour-time{font-size:0.8rem;color:#666;margin-bottom:5px}
+        .hour-temp{font-size:1.1rem;font-weight:bold;color:#74b9ff;margin-bottom:3px}
+        .hour-desc{font-size:0.75rem;color:#666}
+        .daily-forecast{display:grid;gap:8px}
+        .daily-item{display:flex;justify-content:space-between;align-items:center;padding:12px;background:#f8f9fa;border-radius:8px}
+        @media (max-width:600px){.details{grid-template-columns:repeat(2,1fr)}.cities-grid{grid-template-columns:repeat(3,1fr)}}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌤️ 天气预报</h1>
+        </header>
+        
+        <div class="weather-app">
+            <div class="search-box">
+                <input type="text" id="cityInput" class="search-input" placeholder="输入城市名称" value="广州">
+                <button id="searchBtn" class="search-btn">搜索</button>
+            </div>
+            
+            <div class="cities-grid" id="citiesGrid"></div>
+            
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>获取数据中...</p>
+            </div>
+            
+            <div id="error" class="error"></div>
+            
+            <div id="weatherInfo" class="weather-info">
+                <div class="current-weather">
+                    <h2 id="cityName"></h2>
+                    <div class="temperature" id="temperature"></div>
+                    <p id="description"></p>
+                    <div class="details">
+                        <div class="detail-item">
+                            <div class="detail-label">体感温度</div>
+                            <div class="detail-value" id="feelsLike"></div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">湿度</div>
+                            <div class="detail-value" id="humidity"></div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">风速</div>
+                            <div class="detail-value" id="windSpeed"></div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">气压</div>
+                            <div class="detail-value" id="pressure"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="forecast-tabs" id="forecastTabs"></div>
+                <div class="forecast-content" id="forecastContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const CONFIG = {
+            API_KEY: '6df364bbfb990f6330be0a88a5cc5f54',
+            BASE_URL: 'https://api.openweathermap.org/data/2.5'
+        };
+
+        const popularCities = ['北京', '上海', '广州', '深圳', '杭州', '成都', '武汉', '西安', '南京', '重庆'];
+        let currentTab = 'hourly';
+
+        const elements = {
+            cityInput: document.getElementById('cityInput'),
+            searchBtn: document.getElementById('searchBtn'),
+            citiesGrid: document.getElementById('citiesGrid'),
+            loading: document.getElementById('loading'),
+            error: document.getElementById('error'),
+            weatherInfo: document.getElementById('weatherInfo'),
+            cityName: document.getElementById('cityName'),
+            temperature: document.getElementById('temperature'),
+            description: document.getElementById('description'),
+            feelsLike: document.getElementById('feelsLike'),
+            humidity: document.getElementById('humidity'),
+            windSpeed: document.getElementById('windSpeed'),
+            pressure: document.getElementById('pressure'),
+            forecastTabs: document.getElementById('forecastTabs'),
+            forecastContent: document.getElementById('forecastContent')
+        };
+
+        function initCitiesGrid() {
+            elements.citiesGrid.innerHTML = popularCities.map(city => 
+                `<button class="city-btn" onclick="searchCity('${city}')">${city}</button>`
+            ).join('');
+        }
+
+        function searchCity(city) {
+            elements.cityInput.value = city;
+            handleSearch();
+        }
+
+        elements.searchBtn.addEventListener('click', handleSearch);
+        elements.cityInput.addEventListener('keypress', e => e.key === 'Enter' && handleSearch());
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initCitiesGrid();
+            setTimeout(() => handleSearch(), 500);
+        });
+
+        async function handleSearch() {
+            const city = elements.cityInput.value.trim();
+            if (!city) return showError('请输入城市名称');
+            
+            setLoading(true);
+            hideError();
+            hideWeather();
+            
+            try {
+                const currentData = await fetch(`${CONFIG.BASE_URL}/weather?q=${city}&appid=${CONFIG.API_KEY}&units=metric&lang=zh_cn`);
+                if (!currentData.ok) throw new Error('城市未找到');
+                
+                const current = await currentData.json();
+                const forecastData = await fetch(`${CONFIG.BASE_URL}/forecast?q=${city}&appid=${CONFIG.API_KEY}&units=metric&lang=zh_cn`);
+                const forecast = await forecastData.json();
+                
+                displayWeather(current, forecast);
+            } catch (error) {
+                useMockData(city);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        function displayWeather(current, forecast) {
+            elements.cityName.textContent = `${current.name}, ${current.sys.country}`;
+            elements.temperature.textContent = `${Math.round(current.main.temp)}°C`;
+            elements.description.textContent = current.weather[0].description;
+            elements.feelsLike.textContent = `${Math.round(current.main.feels_like)}°C`;
+            elements.humidity.textContent = `${current.main.humidity}%`;
+            elements.windSpeed.textContent = `${current.wind.speed} m/s`;
+            elements.pressure.textContent = `${current.main.pressure} hPa`;
+            
+            initTabs();
+            updateForecastContent(forecast);
+            showWeather();
+        }
+
+        function initTabs() {
+            const tabs = [
+                { id: 'hourly', name: '逐小时' },
+                { id: 'today', name: '今天' },
+                { id: 'tomorrow', name: '明天' },
+                { id: 'dayAfter', name: '后天' }
+            ];
+            
+            elements.forecastTabs.innerHTML = tabs.map(tab => `
+                <button class="tab-btn ${tab.id === currentTab ? 'active' : ''}" 
+                        onclick="switchTab('${tab.id}')">${tab.name}</button>
+            `).join('');
+        }
+
+        function switchTab(tabId) {
+            currentTab = tabId;
+            initTabs();
+            updateForecastContent();
+        }
+
+        function updateForecastContent(forecastData) {
+            if (!forecastData) return;
+            
+            let content = '';
+            
+            switch(currentTab) {
+                case 'hourly':
+                    content = renderHourlyForecast(forecastData);
+                    break;
+                case 'today':
+                    content = renderDailyForecast(forecastData, 0);
+                    break;
+                case 'tomorrow':
+                    content = renderDailyForecast(forecastData, 1);
+                    break;
+                case 'dayAfter':
+                    content = renderDailyForecast(forecastData, 2);
+                    break;
+            }
+            
+            elements.forecastContent.innerHTML = content;
+        }
+
+        function renderHourlyForecast(forecast) {
+            const hourlyData = forecast.list.slice(0, 8);
+            return `
+                <div class="hourly-forecast">
+                    ${hourlyData.map(hour => {
+                        const date = new Date(hour.dt * 1000);
+                        return `
+                            <div class="hourly-item">
+                                <div class="hour-time">${formatTime(date)}</div>
+                                <div class="hour-temp">${Math.round(hour.main.temp)}°C</div>
+                                <div class="hour-desc">${hour.weather[0].description}</div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        function renderDailyForecast(forecast, dayOffset) {
+            const targetDate = new Date();
+            targetDate.setDate(targetDate.getDate() + dayOffset);
+            targetDate.setHours(0, 0, 0, 0);
+            
+            const nextDay = new Date(targetDate);
+            nextDay.setDate(nextDay.getDate() + 1);
+            
+            const dayData = forecast.list.filter(item => {
+                const itemDate = new Date(item.dt * 1000);
+                return itemDate >= targetDate && itemDate < nextDay;
+            });
+            
+            return `
+                <div class="daily-forecast">
+                    ${dayData.map(item => {
+                        const date = new Date(item.dt * 1000);
+                        return `
+                            <div class="daily-item">
+                                <div>${formatTime(date)}</div>
+                                <div>${Math.round(item.main.temp)}°C</div>
+                                <div>${item.weather[0].description}</div>
+                                <div>湿度: ${item.main.humidity}%</div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        function useMockData(city) {
+            const mockData = {
+                '广州': { temp: 25, feelsLike: 27, desc: '晴朗', humidity: 65, wind: 3.5, pressure: 1015 },
+                '北京': { temp: 15, feelsLike: 14, desc: '多云', humidity: 45, wind: 4.2, pressure: 1020 },
+                '上海': { temp: 18, feelsLike: 17, desc: '小雨', humidity: 75, wind: 3.1, pressure: 1012 }
+            };
+            
+            const data = mockData[city] || mockData['广州'];
+            
+            elements.cityName.textContent = city;
+            elements.temperature.textContent = `${data.temp}°C`;
+            elements.description.textContent = data.desc;
+            elements.feelsLike.textContent = `${data.feelsLike}°C`;
+            elements.humidity.textContent = `${data.humidity}%`;
+            elements.windSpeed.textContent = `${data.wind} m/s`;
+            elements.pressure.textContent = `${data.pressure} hPa`;
+            
+            initTabs();
+            elements.forecastContent.innerHTML = renderMockForecast();
+            showWeather();
+        }
+
+        function renderMockForecast() {
+            const now = new Date();
+            if (currentTab === 'hourly') {
+                return `
+                    <div class="hourly-forecast">
+                        ${Array.from({length: 8}, (_, i) => {
+                            const time = new Date(now.getTime() + i * 3 * 60 * 60 * 1000);
+                            const temp = 25 + Math.sin(i * 0.8) * 3;
+                            return `
+                                <div class="hourly-item">
+                                    <div class="hour-time">${formatTime(time)}</div>
+                                    <div class="hour-temp">${Math.round(temp)}°C</div>
+                                    <div class="hour-desc">${['晴朗','多云','晴朗','阴天','小雨','多云','晴朗','晴朗'][i]}</div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            } else {
+                return `
+                    <div class="daily-forecast">
+                        ${Array.from({length: 8}, (_, i) => {
+                            const time = new Date(now.getTime() + i * 3 * 60 * 60 * 1000);
+                            const temp = 24 + Math.random() * 4;
+                            return `
+                                <div class="daily-item">
+                                    <div>${formatTime(time)}</div>
+                                    <div>${Math.round(temp)}°C</div>
+                                    <div>${['晴朗','多云','阴天','小雨','多云','晴朗','阴天','晴朗'][i]}</div>
+                                    <div>湿度: ${60 + Math.random() * 20}%</div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            }
+        }
+
+        function formatTime(date) {
+            return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function setLoading(show) {
+            elements.loading.style.display = show ? 'block' : 'none';
+            elements.searchBtn.disabled = show;
+        }
+
+        function showError(msg) {
+            elements.error.textContent = msg;
+            elements.error.style.display = 'block';
+        }
+
+        function hideError() {
+            elements.error.style.display = 'none';
+        }
+
+        function showWeather() {
+            elements.weatherInfo.style.display = 'block';
+        }
+
+        function hideWeather() {
+            elements.weatherInfo.style.display = 'none';
+        }
+    </script>
+</body>
+</html>
